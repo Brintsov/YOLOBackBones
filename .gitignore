@@ -1,0 +1,6 @@
+*.xlm
+.DS_Store
+.idea/
+.ipynb_checkpoints
+iml
+__pycache__
