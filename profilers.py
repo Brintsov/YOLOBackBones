@@ -11,7 +11,7 @@ from tensorflow.python.profiler.model_analyzer import profile
 from tensorflow.python.profiler.option_builder import ProfileOptionBuilder
 
 
-@tf.function
+#@tf.function(jit_compile=False)
 def infer(model, x, device='CPU:0'):
     with tf.device(f"/{device}"):
         return model(x, training=False)
@@ -138,12 +138,42 @@ class COCOMetricsCalculator:
         self.metric_calculator.reset_state()
         for batch in self.validation_data:
             images, y_true = batch[0], batch[1]
-            y_pred = model.predict(images, verbose=False)
+            y_pred = model.predict(images)
             try:
-                self.metric_calculator.update_state(y_true, y_pred, verbose=False)
+                self.metric_calculator.update_state(y_true, y_pred)
             except:
                 continue
-        metrics = self.metric_calculator.result(verbose=False)
+        metrics = self.metric_calculator.result()
+        metrics = {
+            name: float(value.numpy() if hasattr(value, "numpy") else value)
+            for name, value in metrics.items()
+        }
+        if verbose:
+            print(f"METRICS: {metrics}")
+        return metrics
+
+
+class COCOMetricsCalculatorLite(COCOMetricsCalculator):
+
+    def profile(self, model, data, verbose=False):
+        self.metric_calculator.reset_state()
+        for batch in self.validation_data:
+            images, y_trues = batch[0], batch[1]
+            boxes_pred = []
+            classes_pred = []
+            confidence = []
+            y_preds = {}
+            for i, img in enumerate(images):
+                y_pred = model(np.expand_dims(img, axis=0))
+                boxes_pred.append(y_pred['boxes'].numpy())
+                classes_pred.append(y_pred['classes'].numpy())
+                confidence.append(y_pred['scores'].numpy())
+            y_preds['boxes'] = tf.ragged.constant(boxes_pred, ragged_rank=1)
+            y_preds['classes'] = tf.ragged.constant(classes_pred, ragged_rank=1)
+            y_preds['confidence'] = tf.ragged.constant(confidence, ragged_rank=1)
+
+            self.metric_calculator.update_state(y_trues, y_preds)
+        metrics = self.metric_calculator.result()
         metrics = {
             name: float(value.numpy() if hasattr(value, "numpy") else value)
             for name, value in metrics.items()
